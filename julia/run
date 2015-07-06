@@ -1,0 +1,4 @@
+#!/bin/bash
+moduleName=$1
+shift
+julia -e "include(\"./modules.jl\");include(\"$moduleName\")" $@

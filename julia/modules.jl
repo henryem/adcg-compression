@@ -1,0 +1,6 @@
+require("./Utils/module.jl")
+require("./Problems/module.jl")
+require("./GeneratedData/module.jl")
+require("./Data/module.jl")
+require("./Solvers/module.jl")
+require("./Optimizers/module.jl")
