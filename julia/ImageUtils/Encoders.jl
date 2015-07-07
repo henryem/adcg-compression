@@ -1,5 +1,4 @@
-using Images
-
+export Encoder, encode, encodeAll
 
 abstract Encoder
 
@@ -7,4 +6,8 @@ abstract Encoder
 # a regular Image.
 function encode(this:: Encoder, image:: VectorizedImage)
   raiseAbstract("encode", this)
+end
+
+function encodeAll(this:: Encoder, images:: Vector{VectorizedImage})
+  map(i -> encode(this, i), images)
 end

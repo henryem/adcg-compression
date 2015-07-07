@@ -1,6 +1,6 @@
 module Optimization
 
-include("./Encoders.jl")
+include("./TrivialEncoder.jl")
 include("./ThresholdedEncoder.jl")
 
 end

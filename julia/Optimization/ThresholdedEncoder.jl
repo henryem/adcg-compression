@@ -2,8 +2,7 @@ export ThresholdedEncoder, encode
 export SparsificationStrategy, sparsify
 export HardThresholding, FixedSparsity
 
-using Images
-
+using ImageUtils
 
 abstract SparsificationStrategy
 
@@ -40,7 +39,6 @@ end
 
 function encode(this:: ThresholdedEncoder, image:: VectorizedImage)
   const sparseEncoding = sparsify(this.threshold, map(t -> transform(t, image), this.transforms))
-  #FIXME: Hopefully this does not copy the array.  Not sure about the semantics
-  # of immutables.
-  TransformedImage(this.transforms, sparseEncoding)
+  const nonzeroAtoms = map(nonzeroIdx -> TransformAtom(this.transforms[nonzeroIdx], sparseEncoding[nonzeroIdx]), find(sparseEncoding))
+  TransformedImage(nonzeroAtoms)
 end

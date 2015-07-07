@@ -14,15 +14,14 @@ function decoded(this:: EncodedImage)
 end
 
 
-immutable TransformedImage
-  transforms:: Vector{Transform}
-  transformValues:: Vector{Float64}
+immutable TransformedImage <: EncodedImage
+  transformAtoms:: Vector{TransformAtom}
 end
 
 function encoded(this:: TransformedImage)
-  this.transformValues
+  map(a -> a.weight, this.transformAtoms)
 end
 
 function decoded(this:: TransformedImage)
- [synthesize(t, v) for (t, v) in zip(transforms, transformValues)]
+  toImage(mapreduce(synthesize, +, this.transformAtoms))
 end
