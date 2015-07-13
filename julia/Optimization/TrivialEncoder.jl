@@ -4,12 +4,16 @@ using ImageUtils
 
 # Given a fixed discrete basis of transforms, applies all of the transforms.
 immutable TrivialEncoder <: Encoder
-  transforms:: Vector{ImageTransform}
+  im:: ImageParameters
+  transforms:: Vector{Transform}
 end
 
 # Returns an EncodedImage, which includes its own method for decoding into
 # a regular Image.
-function encode(this:: Encoder, image:: VectorizedImage)
-  const encodings = map(t -> TransformAtom(t, transform(t, image)), this.transforms)
-  TransformedImage(encodings)
+function encode(this:: TrivialEncoder, image:: VectorizedImage)
+  const encodings = map(this.transforms) do t
+    const a = TransformAtom(t, analyze(t, image))
+    a
+  end
+  TransformedImage(this.im, encodings)
 end

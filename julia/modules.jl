@@ -1,6 +1,4 @@
 require("./Utils/module.jl")
-require("./Problems/module.jl")
-require("./GeneratedData/module.jl")
+require("./ImageUtils/module.jl")
 require("./Data/module.jl")
-require("./Solvers/module.jl")
-require("./Optimizers/module.jl")
+require("./Optimization/module.jl")

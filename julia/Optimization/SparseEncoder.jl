@@ -1,4 +1,4 @@
-export ThresholdedEncoder, encode
+export SparseEncoder, encode
 export SparsificationStrategy, sparsify
 export HardThresholding, FixedSparsity
 
@@ -11,7 +11,7 @@ function sparsify(this:: SparsificationStrategy, vector:: Vector{Float64})
 end
 
 
-immutable HardThresholding <: ThresholdingStrategy
+immutable HardThresholding <: SparsificationStrategy
   threshold:: Float64
 end
 
@@ -20,7 +20,7 @@ function sparsify(this:: HardThresholding, vector:: Vector{Float64})
 end
 
 
-immutable FixedSparsity <: ThresholdingStrategy
+immutable FixedSparsity <: SparsificationStrategy
   proportionNonzeros:: Float64
 end
 
@@ -31,14 +31,15 @@ end
 
 
 # Given a fixed discrete basis of transforms, applies all of the transforms,
-# then hard-thresholds to generate sparsity.
-immutable ThresholdedEncoder <: Encoder
-  transforms:: Vector{ImageTransform}
-  threshold:: ThresholdingStrategy
+# then sparsifies them in some simple one-pass way.
+immutable SparseEncoder <: Encoder
+  im:: ImageParameters
+  transforms:: Vector{Transform}
+  threshold:: SparsificationStrategy
 end
 
-function encode(this:: ThresholdedEncoder, image:: VectorizedImage)
-  const sparseEncoding = sparsify(this.threshold, map(t -> transform(t, image), this.transforms))
+function encode(this:: SparseEncoder, image:: VectorizedImage)
+  const sparseEncoding = sparsify(this.threshold, map(t -> analyze(t, image), this.transforms))
   const nonzeroAtoms = map(nonzeroIdx -> TransformAtom(this.transforms[nonzeroIdx], sparseEncoding[nonzeroIdx]), find(sparseEncoding))
-  TransformedImage(nonzeroAtoms)
+  TransformedImage(this.im, nonzeroAtoms)
 end

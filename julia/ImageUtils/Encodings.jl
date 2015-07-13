@@ -5,6 +5,9 @@ using Utils
 
 abstract EncodedImage
 
+# Some representation of the image in encoded form.  For example, a list of
+# matching filters and their weights.  The format is not defined, so this
+# method's output is really suitable only for human consumption.
 function encoded(this:: EncodedImage)
   raiseAbstract("encoded", this)
 end
@@ -15,7 +18,12 @@ end
 
 
 immutable TransformedImage <: EncodedImage
+  im:: ImageParameters
   transformAtoms:: Vector{TransformAtom}
+end
+
+function TransformedImage(im:: ImageParameters, transformAtom:: TransformAtom)
+  TransformedImage(im, [transformAtom])
 end
 
 function encoded(this:: TransformedImage)
@@ -23,5 +31,6 @@ function encoded(this:: TransformedImage)
 end
 
 function decoded(this:: TransformedImage)
-  toImage(mapreduce(synthesize, +, this.transformAtoms))
+  #TODO: Use addSynthesized! instead.
+  toImage(this.im, mapreduce(synthesize, +, this.transformAtoms))
 end
