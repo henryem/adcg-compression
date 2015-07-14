@@ -10,7 +10,7 @@ export griddedPixelGridCubature!
 abstract TwoDFunction
 
 #FIXME: Document
-function apply(this:: TwoDFunction, x:: Float64, y:: Float64, totalScale:: Float64)
+function apply(this:: TwoDFunction, x:: Float64, y:: Float64)
   raiseAbstract("apply", this)
 end
 
@@ -38,7 +38,7 @@ function griddedCubature(f:: TwoDFunction, topLeftX:: Float64, topLeftY:: Float6
       yRotated = sint*x + cost*y
       xRotated /= xScale
       yRotated /= yScale
-      result += apply(f, xRotated, yRotated, totalScale)
+      result += apply(f, xRotated, yRotated) / totalScale
     end
   end
   result / numGridPointsPerPixel^2

@@ -1,7 +1,9 @@
 module Optimization
 
 include("./Encoders.jl")
+include("./Sparsifiers.jl")
+include("./LassoSolver.jl")
 include("./TrivialEncoder.jl")
-include("./SparseEncoder.jl")
+include("./LsEncoder.jl")
 
 end

@@ -9,7 +9,7 @@ immutable AtomicImageGenerator <: DataGenerator{Image}
 end
 
 function generate(this:: AtomicImageGenerator)
-  Image[decoded(im) for im in this.imageInAtoms]
+  Image[decodedToImage(im) for im in this.imageInAtoms]
 end
 
 function singleImage(imageInAtoms:: EncodedImage)
@@ -44,6 +44,6 @@ end
 function generate(this:: RandomAtomicImageGenerator)
   map(1:this.numImages) do i
     const atoms = [generateRandomAtom(this) for a in 1:this.numAtoms]
-    decoded(TransformedImage(this.image, atoms))
+    decodedToImage(TransformedImage(this.image, atoms))
   end
 end

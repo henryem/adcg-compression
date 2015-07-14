@@ -30,32 +30,62 @@ function makeOutputDir!(dirname:: String)
   if dirname != nothing "$(dirname)" else "." end
 end
 
+function compareImages(imA:: AbstractVector{Float64}, imB:: AbstractVector{Float64})
+  const normA = norm(imA)
+  const normB = norm(imB)
+  println("||imA|| = $(normA), ||imB|| = $(normB), ||imA||/||imB|| = $(normA / normB)")
+  println("||imA||_inf = $(norm(imA, Inf)), ||imB||_inf = $(norm(imB, Inf)), ||imA||_inf/||imB||_inf = $(norm(imA, Inf) / norm(imB, Inf))")
+  println("Unnormalized distance: $(norm(imA - imB))")
+  println("Normalized distance:: $(norm(imA/normA - imB/normB))")
+  println("Approximate l0 distance: $(length(filter(x->abs(x)>1e-9,imA-imB))) out of $(length(imA))")
+  println("Approximate l0 distance on normalized vectors: $(length(filter(x->abs(x)>1e-9,imA/normA-imB/normB))) out of $(length(imA))")
+end
+
+function compareAtoms(atomA:: TransformAtom, atomB:: TransformAtom)
+  xRightShiftDiff = atomA.transform.xRightShift - atomB.transform.xRightShift
+  yDownShiftDiff = atomA.transform.yDownShift - atomB.transform.yDownShift
+  angleRadiansDiff = atomA.transform.angleRadians - atomB.transform.angleRadians
+  parabolicScaleDiff = atomA.transform.parabolicScale - atomB.transform.parabolicScale
+  weightDiff = atomA.weight - atomB.weight
+  println("Atomic representation diffs: ")
+  println(xRightShiftDiff, yDownShiftDiff, angleRadiansDiff, parabolicScaleDiff, weightDiff)
+end
+
 function run()
   const args = parseArgs()
   if args["data-seed"] != nothing srand(args["data-seed"]) end
   const dataGenerator = eval(parse(args["data-generator"]))
   const data = generate(dataGenerator)
+  const n = length(data)
   const outDir = makeOutputDir!(args["output-dir"])
   # println([[e.transformAtoms[1].transform.xRightShift,
   #   e.transformAtoms[1].transform.yDownShift,
   #   e.transformAtoms[1].transform.angleRadians,
   #   e.transformAtoms[1].transform.parabolicScale] for e in dataGenerator.imageInAtoms])
-  for i in 1:length(data)
-    imwrite(data[i], "$(outDir)/original_$(i).jpg")
+  for i in 1:n
+    imwrite(data[i], "$(outDir)/$(i)_original.jpg")
   end
-  const vectorizedImages = map(toVectorizedImage, data)
+  const vectorizedImages = toVectorizedImages(data)
   
-  if args["encoder"] != nothing
+  if args["encoder"] != nothing && n > 0
     if args["encoder-seed"] != nothing srand(args["encoder-seed"]) end
     const encoder = eval(parse(args["encoder"]))
-    const encodedImages = map(img -> encode(encoder, img), vectorizedImages)
-    const decodedImages = map(decoded, encodedImages)
-
-    # println(float(decodedImages[1].data))
+    const im = ImageParameters(data[1])
+    const encodedImages = encodeAll(encoder, vectorizedImages)
+    const vectorizedDecodedImages = decodeAll(encodedImages, im)
   
-    for i in 1:length(decodedImages)
-      imwrite(decodedImages[i], "$(outDir)/compressed_$(i).jpg")
+    for i in 1:n
+      println("Analyzing compression result for image $(i)...")
+      compareImages(sub(vectorizedImages, :, i), sub(vectorizedDecodedImages, :, i))
+      #FIXME: Specialized for the case where the ith data point is generated
+      # from the ith transform and there is no sparsity.
+      # compareAtoms(dataGenerator.imageInAtoms[i].transformAtoms[1], encodedImages[i].transformAtoms[i])
+      
+      decodedImage = toImage(ImageParameters(data[i]), sub(vectorizedDecodedImages, :, i))
+      imwrite(decodedImage, "$(outDir)/$(i)_compressed.jpg")
     end
+  else
+    println("No encoding to be done.")
   end
 end
 

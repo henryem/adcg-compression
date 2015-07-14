@@ -59,6 +59,6 @@ end
 
 immutable TwoDGaussianFunction <: TwoDFunction end
 
-function Utils.apply(this:: TwoDGaussianFunction, x:: Float64, y:: Float64, totalScale:: Float64)
-  (1/(2*pi)^(1/2)) * e^(-.5*(x^2 + y^2)) / totalScale
+function Utils.apply(this:: TwoDGaussianFunction, x:: Float64, y:: Float64)
+  (1/(2*pi)^(1/2)) * e^(-.5*(x^2 + y^2))
 end

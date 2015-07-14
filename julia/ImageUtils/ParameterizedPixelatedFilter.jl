@@ -1,4 +1,4 @@
-export ParameterizedPixelatedFilter, analyze, synthesize, parameters, appliedJacobian, grid
+export ParameterizedPixelatedFilter, analyze, synthesize, addSynthesized!, parameters, appliedJacobian, grid
 
 using Cubature
 
@@ -30,23 +30,25 @@ const NUM_GRID_POINTS_PER_DIM = 10
 function pixelatedFilter(d:: Wavelet, image:: ImageParameters, xRightShift:: Float64, yDownShift:: Float64, angleRadians:: Float64, parabolicScale:: Float64)
   template = zeros(image.pixelCountPerSide, image.pixelCountPerSide)
   griddedPixelGridCubature!(toTwoDFunction(d), xRightShift, yDownShift, angleRadians, sqrt(parabolicScale), parabolicScale, NUM_GRID_POINTS_PER_DIM, template)  
-  
-  #FIXME: Old code using Cubature package:
-  # const RELATIVE_TOLERANCE = 1e-4
-  # for xPixel in 1:this.image.pixelCountPerSide
-  #   for yPixel in 1:this.image.pixelCountPerSide
-  #     const xLeftBound = xPixel-1
-  #     const xRightBound = xPixel
-  #     const yTopBound = yPixel-1
-  #     const yBottomBound = yPixel
-  #     const cubaturePixelEstimate = hcubature([xLeftBound, yTopBound], [xRightBound, yBottomBound], reltol = RELATIVE_TOLERANCE) do coords
-  #       transformedD(this, coords)
-  #     end
-  #     template[xPixel, yPixel] = cubaturePixelEstimate[1]
-  #   end
-  # end
-  vec(template)
+  f = vec(template)
+  f /= norm(f, 2)
+  f
 end
+
+#FIXME: Old code for pixelatedFilter() using Cubature package:
+# const RELATIVE_TOLERANCE = 1e-4
+# for xPixel in 1:this.image.pixelCountPerSide
+#   for yPixel in 1:this.image.pixelCountPerSide
+#     const xLeftBound = xPixel-1
+#     const xRightBound = xPixel
+#     const yTopBound = yPixel-1
+#     const yBottomBound = yPixel
+#     const cubaturePixelEstimate = hcubature([xLeftBound, yTopBound], [xRightBound, yBottomBound], reltol = RELATIVE_TOLERANCE) do coords
+#       transformedD(this, coords)
+#     end
+#     template[xPixel, yPixel] = cubaturePixelEstimate[1]
+#   end
+# end
 
 function image(this:: ParameterizedPixelatedFilter)
   this.image
@@ -56,7 +58,8 @@ function analyze(this:: ParameterizedPixelatedFilter, image:: VectorizedImage)
   dot(get(this.filter), image)
 end
 
-function addSynthesized!(this:: ParameterizedPixelatedFilter, weight:: Float64, out:: VectorizedImage)
+#FIXME: Not sure if accepting AbstractVector causes a performance hit here.
+function addSynthesized!(this:: ParameterizedPixelatedFilter, weight:: Float64, out:: AbstractVector{Float64})
   Base.LinAlg.axpy!(weight, get(this.filter), out)
 end
 

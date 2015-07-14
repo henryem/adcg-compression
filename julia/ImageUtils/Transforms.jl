@@ -1,4 +1,4 @@
-export Transform, TransformAtom, analyze, synthesize
+export Transform, TransformAtom, analyze, synthesize, addSynthesized!
 export ParameterizedTransform, parameters, appliedJacobian, grid
 
 abstract Transform
@@ -25,19 +25,21 @@ end
 
 # The inverse of analyze().  For example, weight*T_theta.  The result is
 # added in place to @out.
-function addSynthesized!(this:: Transform, weight:: Float64, out:: VectorizedImage)
+function addSynthesized!(this:: Transform, weight:: Float64, out:: AbstractVector{Float64})
   raiseAbstract("addSynthesized!", this)
 end
 
 function synthesize(this:: Transform, weight:: Float64)
-  addSynthesized!(this, weight, zeros(pixelCount(image(this))))
+  synthesized = zeros(pixelCount(image(this)))
+  addSynthesized!(this, weight, synthesized)
+  synthesized
 end
 
 function synthesize(this:: TransformAtom)
   synthesize(this.transform, this.weight)
 end
 
-function addSynthesized!(this:: TransformAtom, out:: VectorizedImage)
+function addSynthesized!(this:: TransformAtom, out:: AbstractVector{Float64})
   addSynthesized!(this.transform, this.weight, out)
 end
 
@@ -67,3 +69,6 @@ function grid{P <: ParameterizedTransform}(this:: Type{P}, image:: ImageParamete
   raiseAbstract("grid", this)
 end
 
+function Base.show(io:: IO, m:: ParameterizedTransform)
+  print(io, "$(typeof(m)):$(parameters(m))")
+end
