@@ -65,8 +65,6 @@ immutable LsEncoder <: Encoder
       # is in practice slow.  If we really care about performance here, we 
       # should have different methods for when n >> d and vice-versa.
       const regularizedX = makeRegularizedX(im, transforms, REGULARIZATION)
-      println("regularizedX in LsEncoder:")
-      println([(i, regularizedX[i]) for i in find(regularizedX)])
       qrfact(regularizedX)
     end
     new(im, transforms, sparsificationStrategy, Lazy(Base.LinAlg.QRCompactWY, XInvFunc))
@@ -86,11 +84,7 @@ end
 
 function encodeAll(this:: LsEncoder, images:: VectorizedImages)
   const augmentedImages = vcat(images, zeros(length(this.transforms), size(images, 2)))
-  println("augmentedImages:")
-  println([(i, augmentedImages[i]) for i in find(augmentedImages)])
   const weights = get(this.XInv) \ augmentedImages
-  println("weights:")
-  println([(i, weights[i]) for i in find(weights)])
   map(1:size(images, 2)) do imageIdx
     const sparseWeights = sparsify(this.sparsificationStrategy, sub(weights, :, imageIdx))
     const atoms = [TransformAtom(this.transforms[i], sparseWeights[i]) for i in find(sparseWeights)]
@@ -98,20 +92,26 @@ function encodeAll(this:: LsEncoder, images:: VectorizedImages)
   end
 end
 
-const LASSO_L2_REGULARIZATION = 1e-4
+#FIXME: Arbitrary.
+const LASSO_INVERSE_STEPSIZE = 1e-2
+const LASSO_L1_REGULARIZATION = 1e-4
 
 immutable LassoEncoder <: Encoder
   im:: ImageParameters
   transforms:: Vector{Transform}
-  XInv:: Container{Base.LinAlg.QRCompactWY}
+  XTXInv:: Container{Base.LinAlg.Cholesky}
+  XT:: Container{Matrix{Float64}}
   
-  function LassoEncoder(im:: ImageParameters, transforms:: Vector{Transform})
-    #FIXME: Augment image with 0s.  And rename this.  And fix dimensions here as above.
-    const XInvFunc = function()
-      const regularizedX = makeRegularizedX(im, transforms, LASSO_L2_REGULARIZATION)
-      qrfact(X)
+  function LassoEncoder{T <: Transform}(im:: ImageParameters, transforms:: Vector{T})
+    const XTXInvFunc = function()
+      const regularizedXTX = makeRegularizedXTX(im, transforms, LASSO_INVERSE_STEPSIZE)
+      cholfact(regularizedXTX)
     end
-    new(im, transforms, Lazy(Base.LinAlg.QRCompactWY, XInvFunc))
+    const XTFunc = function()
+      #FIXME: Should use a sparse matrix here.
+      makeX(im, transforms)'
+    end
+    new(im, transforms, Lazy(Base.LinAlg.Cholesky, XTXInvFunc), Lazy(Matrix{Float64}, XTFunc))
   end
 end
 
@@ -121,11 +121,15 @@ end
 
 function encodeAll(this:: LassoEncoder, images:: VectorizedImages)
   const solver = LassoSolver()
-  # The l1 regularization term.
-  const lambda = 1e-3 #FIXME: Arbitrary.
-  #TODO: Expensive.  Should preallocate memory, maybe.
-  const augmentedImages = vcat(images, zeros(length(this.transforms), size(images, 2)))
-  const weights = solveAll(solver, get(this.XInv), augmentedImages, lambda)
+  println("images:")
+  println([(i, images[i]) for i in find(images)])
+  #TODO: X^T Y is simply the analysis of all the images under all the
+  # transforms.  Potentially it is faster to call analyze() directly, to avoid
+  # constructing X^T.  But currently the rows of X^T are constructed anyway
+  # when analyze() is called, and this way we get to use BLAS to apply it.
+  const weights = solveAll(solver, get(this.XTXInv), get(this.XT) * images, LASSO_L1_REGULARIZATION, LASSO_INVERSE_STEPSIZE)
+  println("weights:")
+  println([(i, weights[i]) for i in find(weights)])
   map(1:size(images, 2)) do imageIdx
     const atoms = [TransformAtom(this.transforms[i], weights[i,imageIdx]) for i in find(sub(weights, :, imageIdx))]
     TransformedImage(this.im, atoms)
