@@ -20,25 +20,22 @@ function singleAtomImages{T <: Transform}(im:: ImageParameters, transforms:: Vec
   AtomicImageGenerator([TransformedImage(im, TransformAtom(t)) for t in transforms])
 end
 
+function singleAtomImages{T <: Transform}(im:: ImageParameters, transforms:: Vector{T}, weight:: Float64)
+  AtomicImageGenerator([TransformedImage(im, TransformAtom(t, weight)) for t in transforms])
+end
+
 #FIXME: For now hard-coded to use a particular parameterized class of atoms.
 # Could generalize if the filter had a reasonableRandomSample() method.
 immutable RandomAtomicImageGenerator <: DataGenerator{Image}
   numImages:: Int64
   numAtoms:: Int64
   meanAtomWeight:: Float64
-  meanAtomScale:: Float64
-  image:: ImageParameters
+  parameterSpace:: ParameterSpace
 end
 
 function generateRandomAtom(this:: RandomAtomicImageGenerator)
   const weight = this.meanAtomWeight*2.0*rand()
-  const len = imageWidth(this.image)
-  const xRightShift = rand()*len
-  const yDownShift = rand()*len
-  const angleRadians = pi*rand()
-  const parabolicScale = .1 + this.meanAtomScale*2.0*rand()
-  const transform = ParameterizedPixelatedFilter(defaultWavelet(this.image), this.image, xRightShift, yDownShift, angleRadians, parabolicScale)
-  TransformAtom(transform, weight)
+  TransformAtom(uniformSample(this.parameterSpace), weight)
 end
 
 function generate(this:: RandomAtomicImageGenerator)

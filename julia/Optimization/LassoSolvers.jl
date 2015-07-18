@@ -1,4 +1,4 @@
-export LassoSolver, solveAll
+export AdmmLassoSolver, solve, solveAll
 
 # Solves a Lasso optimization problem:
 #   \min_{T \in \R^{d \times n}} .5||X T - Y||_F^2 + \lambda ||T||_1 ,
@@ -29,30 +29,46 @@ export LassoSolver, solveAll
 #    (X^T X + \gamma I)T' - X^T Y - \gamma(B - residual)
 #    => T' = (X^T X + \gamma I) \ (X^T Y + \gamma(B - residual))
 # Note that this means we must compute X^T Y, which is slightly unfortunate.
-immutable LassoSolver end
+immutable AdmmLassoSolver end
 
 const TOLERANCE = 1e-5
 
-function solveAll(this:: LassoSolver, XTXInv, XTY:: Matrix{Float64}, lambda:: Float64, gamma:: Float64)
+# Inefficient but more accessible version of solveAll().
+function solve(this:: AdmmLassoSolver, X:: Matrix{Float64}, y:: Vector{Float64}, lambda:: Float64, gamma:: Float64)
+  const XTXInv = inv(X'*X + gamma*eye(size(X, 2)))
+  const XTY = X'*y
+  solveAll(this, XTXInv, XTY, lambda, gamma)
+end
+
+function solveAll(this:: AdmmLassoSolver, XTXInv, XTY:: Matrix{Float64}, lambda:: Float64, gamma:: Float64)
   A = XTXInv \ XTY
   B = copy(A)
   residual = zeros(A)
-  while norm(residual) < TOLERANCE
-    #TODO: Should figure out a way to do this solve and subtract in place.
-    A[:,:] = XTXInv \ (XTY + gamma*(B - residual))
+  gap = zeros(A)
+  while true
+    aUpdate!(B, residual, XTXInv, XTY, A, gamma)
     softShrinkage!(A, residual, B, lambda/gamma)
-    residual[:,:] = residual + A - B
+    gap[:,:] = A - B
+    residual[:,:] = residual + gap
+    #FIXME: Should use better stopping conditions.
+    if norm(gap) < TOLERANCE
+      break
+    end
   end
   #NOTE: It is important to return B, since A is not necessarily sparse.
   B
+end
+
+function aUpdate!(input:: Matrix{Float64}, residual:: Matrix{Float64}, XTXInv, XTY:: Matrix{Float64}, output:: Matrix{Float64}, gamma:: Float64)
+  #TODO: Should figure out a way to do this solve and subtract in place.
+  output[:,:] = XTXInv \ (XTY + gamma*(input - residual))
 end
 
 # Soft shrinkage on (input + resid), placed in output.
 function softShrinkage!(input:: Matrix{Float64}, resid:: Matrix{Float64}, output:: Matrix{Float64}, lambda:: Float64)
   assert(size(input) == size(output) == size(resid))
   for i in 1:length(input)
-    #FIXME: @inbounds
-    current = input[i] + resid[i]
+    @inbounds current = input[i] + resid[i]
     if current > lambda
       current -= lambda
     elseif current < -lambda
@@ -60,7 +76,6 @@ function softShrinkage!(input:: Matrix{Float64}, resid:: Matrix{Float64}, output
     else
       current = 0
     end
-    #FIXME: @inbounds
-    output[i] = current
+    @inbounds output[i] = current
   end
 end

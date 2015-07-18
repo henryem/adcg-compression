@@ -4,6 +4,6 @@ include("./Images.jl")
 include("./Wavelets.jl")
 include("./Transforms.jl")
 include("./Encodings.jl")
-include("./ParameterizedPixelatedFilter.jl")
+include("./SrprsFilter.jl")
 
 end

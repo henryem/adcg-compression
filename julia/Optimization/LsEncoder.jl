@@ -4,37 +4,6 @@ export LassoEncoder, encode, encodeAll
 using Utils, ImageUtils
 
 
-# Forms the linear operator of application of @transforms.
-function makeX{T <: Transform}(im:: ImageParameters, transforms:: Vector{T})
-  X = zeros(pixelCount(im), length(transforms))
-  for (i, t) in enumerate(transforms)
-    addSynthesized!(t, 1.0, sub(X, :, i))
-  end
-  X
-end
-
-# Forms the linear operator of application of @transforms, plus a padding of
-# features equal to regularization*I.  The padding makes X suitable for use in, 
-# for example, regularized QR.
-function makeRegularizedX{T <: Transform}(im:: ImageParameters, transforms:: Vector{T}, regularization:: Float64)
-  const d = pixelCount(im)
-  const n = length(transforms)
-  regularizedX = zeros(d + n, n)
-  for (i, t) in enumerate(transforms)
-    addSynthesized!(t, 1.0, sub(regularizedX, 1:d, i))
-  end
-  for i in 1:n
-    regularizedX[d+i,i] = regularization
-  end
-  regularizedX
-end
-
-function makeRegularizedXTX{T <: Transform}(im:: ImageParameters, transforms:: Vector{T}, regularization:: Float64)
-  const X = makeX(im, transforms)
-  X' * X + regularization*eye(length(transforms))
-end
-
-
 # We add a bit of regularization to make the problem better-conditioned.  Or
 # perhaps we have a Gaussian prior on the transform weights :-S .
 const REGULARIZATION = 1e-9
@@ -93,8 +62,8 @@ function encodeAll(this:: LsEncoder, images:: VectorizedImages)
 end
 
 #FIXME: Arbitrary.
-const LASSO_INVERSE_STEPSIZE = 1e-2
-const LASSO_L1_REGULARIZATION = 1e-4
+const LASSO_INVERSE_STEPSIZE = 1e-4
+const LASSO_L1_REGULARIZATION = 1e-7
 
 immutable LassoEncoder <: Encoder
   im:: ImageParameters
@@ -120,7 +89,7 @@ function encode(this:: LassoEncoder, image:: VectorizedImage)
 end
 
 function encodeAll(this:: LassoEncoder, images:: VectorizedImages)
-  const solver = LassoSolver()
+  const solver = AdmmLassoSolver()
   println("images:")
   println([(i, images[i]) for i in find(images)])
   #TODO: X^T Y is simply the analysis of all the images under all the

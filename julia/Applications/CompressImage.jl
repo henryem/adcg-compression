@@ -2,7 +2,7 @@ using ArgParse, Images
 using Utils, Data, ImageUtils, Optimization
 
 # Example:
-#   ./run Applications/CompressImage.jl -e 'TrivialEncoder(ImageParameters(512),grid(ParameterizedPixelatedFilter,ImageParameters(512),10^4))' -d 'RandomAtomicImageGenerator(1,3,ImageParameters(512))'
+#   ./run Applications/CompressImage.jl -e 'TrivialEncoder(ImageParameters(512),grid(SrprsSpace(ImageParameters(512)),10^4))' -d 'RandomAtomicImageGenerator(1,3,ImageParameters(512))'
 
 function parseArgs()
   s = ArgParseSettings()
