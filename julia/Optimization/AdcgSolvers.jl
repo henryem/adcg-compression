@@ -6,14 +6,16 @@ export LocalImprovementFinder, findLocalImprovements
 export L2Loss
 export WarmstartFinder
 export GridFinder
-export NLoptFinder
+export NLoptDirectionFinder
 export AdmmLasso
 export InteriorPointNonnegativeLasso
+export FixedStep
 export NullImprovementFinder
 export GradientStepImprovementFinder
 export NLoptImprovementFinder
 
 using NLopt
+using ImageUtils
 
 
 abstract Loss
@@ -124,31 +126,30 @@ end
 immutable NLoptDirectionFinder <: AlignedDirectionFinder
 end
 
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T})
-  opt = Opt(:LD_MMA, 2)
+function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, initialDirection:: Vector{Float64})
+  opt = Opt(:LD_MMA, dimension(space))
   # Could make these parameters.
   ftol_abs!(opt, 1e-6)
   xtol_rel!(opt, 0.0)
   maxeval!(opt, 200)
-  lower_bounds!(opt, [bounds(space, i)[1] for i in 1:dimension(space)])
-  upper_bounds!(opt, [bounds(space, i)[2] for i in 1:dimension(space)])
+  lower_bounds!(opt, Float64[bounds(space, i)[1] for i in 1:dimension(space)])
+  upper_bounds!(opt, Float64[bounds(space, i)[2] for i in 1:dimension(space)])
   
   # NLopt requires a function that evaluates the objective (which is just
   # <makeTransform(point), direction>) and computes its gradient with
   # respect to the point parameter at point, placing it in gradientOutput.
   function inprodAndGradient!(point:: Vector{Float64}, gradientOutput:: Vector{Float64})
     #FIXME: Really really should avoid allocation here.  Should have a mutating
-    # version of makeTransform and a streaming version of analyze and 
-    # appliedJacobian.
+    # version of makeTransform and a streaming version of analyze.
     const t:: T = makeTransform(space, point)
     inprod = analyze(t, direction)
     #FIXME: May need to multiply by -1 or something here?
-    gradientOutput[:] = appliedJacobian(t, direction)
-    return inprod
+    parameterGradient!(t, direction, gradientOutput)
+    return inprod:: Float64
   end
   
   max_objective!(opt, inprodAndGradient!)
-  (maxValue, bestDirection, terminationStatus) = optimize(opt, initial_x)
+  (maxValue, bestDirection, terminationStatus) = optimize(opt, initialDirection)
   return bestDirection
 end
 
@@ -167,7 +168,7 @@ function bestWeights(this:: FixedStep, currentAtoms:: Vector{TransformAtom}, max
     [TransformAtom(currentAtoms[1].transform, maxWeight)]
   else
     map(1:n) do atomIdx
-      const a:: TransformAtom = currentAtoms
+      const a:: TransformAtom = currentAtoms[atomIdx]
       if atomIdx != n
         TransformAtom(a.transform, (1.0-this.gamma)*a.weight)
       else
@@ -211,9 +212,8 @@ end
 function findLocalImprovements{T <: ParameterizedTransform}(this:: GradientStepImprovementFinder, currentAtoms:: Vector{TransformAtom}, image:: VectorizedImage, space:: ParameterSpace{T})
   newParameters = zeros(dimension(space), length(currentAtoms))
   for (i, a) in enumerate(currentAtoms)
-    #FIXME: Need to write this.
-    appliedJacobian!(a.transform, image, sub(newParameters, :, i))
-    newParameters[:,i] *= -this.stepSize
+    parameterGradient!(a.transform, image, sub(newParameters, :, i))
+    newParameters[:,i] .*= -this.stepSize
     newParameters[:,i] += parameters(a.transform)
   end
   #FIXME: May want to consider modifying atoms in place.

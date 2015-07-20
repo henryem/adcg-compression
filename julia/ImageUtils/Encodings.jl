@@ -50,8 +50,8 @@ immutable TransformedImage <: EncodedImage
   transformAtoms:: Vector{TransformAtom}
 end
 
-function TransformedImage(im:: ImageParameters, transformAtom:: TransformAtom)
-  TransformedImage(im, [transformAtom])
+function TransformedImage(transformAtom:: TransformAtom)
+  TransformedImage(image(transformAtom.transform), [transformAtom])
 end
 
 function imageParameters(this:: TransformedImage)

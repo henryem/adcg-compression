@@ -11,8 +11,8 @@ function toStandardFormat(im:: Image, format:: ImageParameters)
     standardizedImage = subim(1:format.pixelCountPerSide, 1:ySize)
   elseif xSize < format.pixelCountPerSide
     const diff = format.pixelCountPerSide - xSize
-    const leftPad = int(ceil(diff / 2))
-    const rightPad = int(floor(diff / 2))
+    const leftPad = ceil(Int64, diff / 2)
+    const rightPad = floor(Int64, diff / 2)
     standardizedImage = shareproperties(padarray(data(standardizedImage), (leftPad, 0), (rightPad, 0), "value", 0.0), standardizedImage)
   end
   

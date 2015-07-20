@@ -1,8 +1,7 @@
 export AdcgEncoder, encode
 
-#FIXME: Arbitrary.
-# const LASSO_INVERSE_STEPSIZE = 1e-2
-# const LASSO_L1_REGULARIZATION = 1e-4
+#FIXME
+using Images
 
 immutable AdcgEncoder{T <: ParameterizedTransform} <: Encoder
   im:: ImageParameters
@@ -11,10 +10,6 @@ immutable AdcgEncoder{T <: ParameterizedTransform} <: Encoder
   bestAtomFinder:: AlignedDirectionFinder
   bestWeightsFinder:: FiniteDimQpSolver
   localAtomImprover:: LocalImprovementFinder
-  
-  function AdcgEncoder(im:: ImageParameters, motherTransformSpace:: ParameterSpace{T})
-    new(im, motherTransformSpace)
-  end
 end
 
 function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
@@ -45,11 +40,25 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
     # Note that this step changes if we use a different loss function; in 
     # general we use the gradient of the loss (with respect to the residual),
     # which coincides with the residual for the squared loss.
+    #TODO: Not sure why this next line is needed.
+    currentImageEncoded = TransformedImage(this.im, atoms)
     decodeInto!(currentImageEncoded, currentImageDecoded)
+    imwrite(toImage(this.im, currentImageDecoded), "inprogress_$(iterationCount).jpg")
     residual[:] = image - currentImageDecoded
+    imwrite(toImage(this.im, abs(residual)), "inprogress_residual_$(iterationCount).jpg")
+    residualNorm = norm(residual, 2)
+    iterationCount += 1
+    println("Residual norm before iteration $(iterationCount): $(residualNorm)")
+    if iterationCount > 100 || residualNorm < 1e-5
+      println("Finished encoding.")
+      break
+    end
     gradient!(this.loss, residual, lossGradient)
+    #FIXME: Check if the direction is actually positive!  If the gradient is
+    # ~0 then we are done.  Also, should compute the Frank-Wolfe lower bound
+    # here.
     const nextAtomParameters = mostAlignedDirection(this.bestAtomFinder, lossGradient, space)
-    push!(atoms, TransformAtom(P(this.im, nextAtomParameters), 0.0))
+    push!(atoms, TransformAtom(makeTransform(space, nextAtomParameters), 0.0))
     
     # Now we do heuristic descent over the weights and parameters for awhile.
     # We alternate between exact block coordinate descent over the weights,
@@ -58,7 +67,8 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
     # combination of the current measure and the new atom, and these steps
     # (since they include exact minimization over the weights) always give us
     # a better objective value.  There are no proofs about the efficacy of
-    # these steps, but in practice they are often important.
+    # these steps (except to the effect that they harm nothing), but in
+    # practice they are often important.
     while true
       # Now optimize over the convex hull of tau*thetas to produce atoms whose
       # mass sums to (at most) tau.  This is just solving a convex QP (a 
@@ -68,7 +78,7 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
       # next two steps.  On the other hand, these steps can be kinda expensive,
       # so maybe it doesn't matter.
       #FIXME: Assumes squared error loss.
-      atoms = bestWeights(this.bestWeightsFinder, atoms, image)
+      atoms = bestWeights(this.bestWeightsFinder, atoms, tau, image, this.im)
     
       # Now remove any atoms with 0 weight.
       atoms = filter(a -> a.weight > 0.0, atoms)
@@ -81,12 +91,7 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
       break
     end
     #FIXME: Need a real stopping condition.
-    iterationCount += 1
-    residualNorm = norm(residual, 2)
-    println("Residual norm on iteration $(iterationCount): $(residualNorm)")
-    if iterationCount > 100 || residualNorm < 1e-5
-      break
-    end
+    println("Added atom at $(nextAtomParameters) with weight $(atoms[end].weight).")
   end
   TransformedImage(this.im, atoms)
 end

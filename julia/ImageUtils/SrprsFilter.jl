@@ -1,5 +1,25 @@
+export SrprsFilter, analyze, synthesize, addSynthesized!, parameters, parameterSpace, parameterGradient!
 export SrprsSpace, dimension, bounds, grid, uniformSample
-export SrprsFilter, analyze, synthesize, addSynthesized!, parameters, parameterSpace, appliedJacobian
+
+# Utility method to apply a shift-rotate-scale transform.
+function srprsX(x:: Float64, y:: Float64, xRightShift:: Float64, yDownShift:: Float64, sint:: Float64, cost:: Float64, xScale:: Float64, yScale:: Float64)
+  const xShifted = x - xRightShift
+  const yShifted = y - yDownShift
+  const xRotated = cost*xShifted - sint*yShifted
+  xRotated / xScale
+end
+
+# Utility method to apply a shift-rotate-scale transform.
+function srprsY(x:: Float64, y:: Float64, xRightShift:: Float64, yDownShift:: Float64, sint:: Float64, cost:: Float64, xScale:: Float64, yScale:: Float64)
+  const xShifted = x - xRightShift
+  const yShifted = y - yDownShift
+  const yRotated = sint*xShifted + cost*yShifted
+  yRotated / yScale
+end
+
+function srprsScale(xScale:: Float64, yScale:: Float64)
+  1.0 / (xScale*yScale)
+end
 
 
 # A filter that takes a function in continuous land, then rotates/scales/shifts
@@ -65,15 +85,18 @@ function addSynthesized!(this:: SrprsFilter, weight:: Float64, out:: AbstractVec
   Base.LinAlg.axpy!(weight, get(this.filter), out)
 end
 
-# The Jacobian of the function p -> synthesize(SrprsFilter(p)).
-# A |parameters(this)|-by-pixelCount(this.image) matrix.
-function pixelatedJacobian(this:: SrprsFilter)
-  #FIXME
-end
-
-# The gradient of the function p -> <synthesize(SrprsFilter(p)), image>.  A |parameters(this)|-vector.
-function appliedJacobian(this:: SrprsFilter, image:: VectorizedImage)
-  pixelatedJacobian(this) * image
+# The gradient of the scalar function p -> <synthesize(SrprsFilter(p)), im>,
+# evaluated at parameters(this).  A |parameters(this)|-vector.
+#NOTE: This is currently optimized for being called once.  Analyze(), which is
+# analogous to this method, is optimized (via caching) for being called many 
+# times.  This is convenient for current uses of this class, but totally
+# arbitrary and confusing from an interface-design perspective.  Should
+# consider options for refactoring.
+function parameterGradient!(this:: SrprsFilter, im:: VectorizedImage, out:: AbstractVector{Float64})
+  const gradientFunc = SinglePointSrprsGradient(this, im)
+  const w = imageWidth(image(this))
+  const numGridPointsPerDim = w * NUM_GRID_POINTS_PER_DIM
+  vectorGridCubature!(gradientFunc, 0.0, float(w), 0.0, float(w), numGridPointsPerDim, out)
 end
 
 
@@ -124,4 +147,82 @@ function bounds(this:: SrprsSpace, dim:: Int64)
   else
     error("Dim $(dim) out of bounds for $(this).")
   end
+end
+
+
+# The full parameter gradient of a filter is the gradient of the function
+#   p -> <synthesize(SrprsFilter(p)), image> .
+# This can be estimated as a sum of products of pixel values with the values
+# of synthesize() at single points.  Here we compute the gradient of one such 
+# summand.  We can then average these over many points to estimate the full 
+# gradient.
+immutable SinglePointSrprsGradient <: VectorTwoDFunction
+  filter:: SrprsFilter
+  image:: VectorizedImage
+end
+
+function Utils.outputDimension(this:: SinglePointSrprsGradient)
+  4
+end
+
+function continuousToPixel(continuousImageCoordinate:: Float64)
+  if continuousImageCoordinate == 0.0
+    # In this common special case, we still want to round up, since it is at 
+    # the edge of pixel 1.
+    1
+  else
+    ceil(Int64, continuousImageCoordinate)
+  end
+end
+
+function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Float64, output:: Vector{Float64})
+  const d = this.filter.parameterSpace.d
+  const p = parameters(this.filter)
+  const w = imageWidth(image(this.filter))
+  
+  const pixelX:: Int64 = continuousToPixel(x)
+  const pixelY:: Int64 = continuousToPixel(y)
+  const flatPixelIdx = pixelX+w*(pixelY-1)
+  #FIXME: Not sure why this happens.
+  # const imageValue = if pixelX < 1 || pixelX > w || pixelY < 1 || pixelY > w
+  #   0.0
+  # else
+  const imageValue = this.image[flatPixelIdx]
+  # end
+  
+  const xR = xRightShift(this.filter)
+  const yD = yDownShift(this.filter)
+  const t = angleRadians(this.filter)
+  const sinT = sin(t)
+  const cosT = cos(t)
+  const s = parabolicScale(this.filter)
+  const sInv = 1.0/s
+  const sqrtS = sqrt(s)
+  const sqrtSInv = 1.0 / sqrtS
+  const totalScale = srprsScale(sqrtS, s)
+
+  const transformedX = srprsX(x, y, xR, yD, sinT, cosT, sqrtS, s)
+  const transformedY = srprsY(x, y, xR, yD, sinT, cosT, sqrtS, s)
+  const waveletValue = totalScale*apply(d, transformedX, transformedY)
+  const waveletGradX = totalScale*gradientX(d, transformedX, transformedY)
+  const waveletGradY = totalScale*gradientY(d, transformedX, transformedY)
+  
+  # Note: Some of this could be describe a bit more concisely using matrices,
+  # but for a 2-dimensional problem, linear algebra is much less efficient
+  # than manual multiplication, and we do care about efficiency in this code.
+  # d/dxRightShift = <w'_t(x,y), S_t R_t (-1, 0)>
+  const ddxRightShift = (waveletGradX*sqrtSInv*(-cosT) + waveletGradY*sInv*(-sinT))
+  # d/dyDownShift = <w'_t(x,y), S_t R_t (0, -1)>
+  const ddyDownShift = (waveletGradX*sqrtSInv*sinT + waveletGradY*sInv*(-cosT))
+  # d/dangleRadians = <w'_t(x,y), S_t d/dangleRadians(R_t) (x - xRightShift, y - yDownShift)
+  const ddangleRadians = (waveletGradX*sqrtSInv*(-sinT*(x-xR) - cosT*(y-yD)) + waveletGradY*sInv*(cosT*(x-xR) - sinT*(y-yD)))
+  # d/dparabolicScale has an extra term introduced by the product rule, since
+  # it hits the whole wavelet:
+  # d/dparabolicScale = -3/2 s^{5/2} w_t(x,y) + <w'_t(x,y), d/dparabolicScale(S_t) R_t (x - xRightShift, y - yDownShift)>
+  const ddparabolicScale = (-3/2)*s^(-5/2)*waveletValue + (waveletGradX*(-1/2)*s^(-3/2)*(cosT*(x-xR) - sinT*(y-yD)) + waveletGradX*(-1)*s^(-2)*(sinT*(x-xR) + cosT*(y-yD)))
+  
+  output[1] += imageValue*ddxRightShift
+  output[2] += imageValue*ddyDownShift
+  output[3] += imageValue*ddangleRadians
+  output[4] += imageValue*ddparabolicScale
 end

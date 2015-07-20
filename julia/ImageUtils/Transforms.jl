@@ -1,7 +1,7 @@
 export Transform, TransformAtom, analyze, synthesize, addSynthesized!
 export makeX, makeRegularizedX, makeRegularizedXTX
-export ParameterSpace, dimension, grid, uniformSample
-export ParameterizedTransform, parameters, appliedJacobian
+export ParameterSpace, dimension, bounds, makeTransform, grid, uniformSample
+export ParameterizedTransform, parameters, parameterGradient!
 
 abstract Transform
 
@@ -102,8 +102,9 @@ end
 # Multiplying this by an image results in a vector in \Theta again.  This is
 # the direction of greatest increase of analyze(image) in \Theta at some point 
 # in \Theta.
-function appliedJacobian(this:: ParameterizedTransform, image:: VectorizedImage)
-  raiseAbstract("appliedJacobian", this)
+# The gradient is filled into @out.
+function parameterGradient!(this:: ParameterizedTransform, image:: VectorizedImage, out:: AbstractVector{Float64})
+  raiseAbstract("parameterGradient!", this)
 end
 
 function Base.show(io:: IO, m:: ParameterizedTransform)
@@ -146,7 +147,7 @@ end
 # numGridPoints transforms are included.  (So, with a simple gridding, each
 # dimension gets numGridPoints^(1/dimension(this)) different values.)
 function grid{T <: ParameterizedTransform}(this::ParameterSpace{T}, numGridPoints:: Int64)
-  const numGridPointsPerParam = int(floor(numGridPoints^(1.0/dimension(this))))
+  const numGridPointsPerParam = floor(Int64, numGridPoints^(1.0/dimension(this)))
   const numGridPointsRounded = numGridPointsPerParam^dimension(this)
   const ranges = [linrange(bounds(this, i)[1], bounds(this, i)[2], numGridPointsPerParam) for i in 1:dimension(this)]
   theGrid:: Vector{ParameterizedTransform} = ParameterizedTransform[]

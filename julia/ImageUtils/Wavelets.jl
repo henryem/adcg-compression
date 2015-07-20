@@ -1,5 +1,6 @@
-export Wavelet, apply, gradient, defaultWavelet
-export SimpleWavelet
+export Wavelet, apply, toTwoDFunction, gradient, gradient!, gradientX, gradientY
+export defaultWavelet
+export GaussianWavelet
 export TwoDGaussianFunction
 
 using Utils
@@ -26,34 +27,59 @@ function toTwoDFunction(this:: Wavelet)
 end
 
 function gradient(this:: Wavelet, x:: Float64, y:: Float64)
-  raiseAbstract("gradient", this)
+  out = zeros(2)
+  gradient!(this, x, y, out)
+  out
+end
+
+function gradient!(this:: Wavelet, x:: Float64, y:: Float64, gradientOutput:: TwoDPoint)
+  gradientOutput[1] = gradientX(this, x, y)
+  gradientOutput[2] = gradientY(this, x, y)
+end
+
+function gradientX(this:: Wavelet, x:: Float64, y:: Float64)
+  raiseAbstract("gradientX", this)
+end
+
+function gradientY(this:: Wavelet, x:: Float64, y:: Float64)
+  raiseAbstract("gradientY", this)
 end
 
 
-immutable SimpleWavelet <: Wavelet
+function defaultWavelet(image:: ImageParameters)
+  #FIXME: Probably not a great wavelet.
+  GaussianWavelet(image)
+end
+
+
+immutable GaussianWavelet <: Wavelet
   image:: ImageParameters
 end
 
-function apply(this:: SimpleWavelet, p:: TwoDPoint)
-  #FIXME: A Gaussian.  Probably not a great wavelet.
+function apply(this:: GaussianWavelet, p:: TwoDPoint)
   (1/(2*pi)^(1/2)) * e^(-.5*(p[1]^2 + p[2]^2))
 end
 
-function apply(this:: SimpleWavelet, x:: Float64, y:: Float64)
-  #FIXME: A Gaussian.  Probably not a great wavelet.
+function apply(this:: GaussianWavelet, x:: Float64, y:: Float64)
   (1/(2*pi)^(1/2)) * e^(-.5*(x^2 + y^2))
 end
 
-function toTwoDFunction(this:: SimpleWavelet)
+function toTwoDFunction(this:: GaussianWavelet)
   TwoDGaussianFunction()
 end
 
-function gradient(this:: SimpleWavelet, x:: Float64, y:: Float64)
-  #FIXME
+function gradientX(this:: GaussianWavelet, x:: Float64, y:: Float64)
+  -x*apply(this, x, y)
 end
 
-function defaultWavelet(image:: ImageParameters)
-  SimpleWavelet(image)
+function gradientY(this:: GaussianWavelet, x:: Float64, y:: Float64)
+  -y*apply(this, x, y)
+end
+
+function gradient!(this:: GaussianWavelet, x:: Float64, y:: Float64, gradientOutput:: TwoDPoint)
+  const c = apply(this, x, y)
+  gradientOutput[1] = -c*x
+  gradientOutput[2] = -c*y
 end
 
 

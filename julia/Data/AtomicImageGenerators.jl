@@ -16,12 +16,12 @@ function singleImage(imageInAtoms:: EncodedImage)
   AtomicImageGenerator([imageInAtoms])
 end
 
-function singleAtomImages{T <: Transform}(im:: ImageParameters, transforms:: Vector{T})
-  AtomicImageGenerator([TransformedImage(im, TransformAtom(t)) for t in transforms])
+function singleAtomImages{T <: Transform}(transforms:: Vector{T})
+  AtomicImageGenerator([TransformedImage(TransformAtom(t)) for t in transforms])
 end
 
-function singleAtomImages{T <: Transform}(im:: ImageParameters, transforms:: Vector{T}, weight:: Float64)
-  AtomicImageGenerator([TransformedImage(im, TransformAtom(t, weight)) for t in transforms])
+function singleAtomImages{T <: Transform}(transforms:: Vector{T}, weight:: Float64)
+  AtomicImageGenerator([TransformedImage(TransformAtom(t, weight)) for t in transforms])
 end
 
 #FIXME: For now hard-coded to use a particular parameterized class of atoms.
