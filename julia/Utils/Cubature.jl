@@ -68,5 +68,5 @@ function vectorGridCubature!(fs:: VectorTwoDFunction, topLeftX:: Float64, xWidth
     end
   end
   const totalScale = numGridPointsPerPixelDim^2 / (xWidth * yWidth)
-  results ./= totalScale
+  scale!(results, 1/totalScale)
 end

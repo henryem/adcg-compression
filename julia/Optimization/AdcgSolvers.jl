@@ -1,5 +1,5 @@
 # Solver subroutines for AdcgEncoder.
-export Loss, loss, gradient
+export Loss, loss, lossGradient, lossGradient!
 export AlignedDirectionFinder, mostAlignedDirection
 export FiniteDimQpSolver, bestWeights
 export LocalImprovementFinder, findLocalImprovements
@@ -24,13 +24,13 @@ function loss(this:: Loss, residual:: Vector{Float64})
   raiseAbstract("loss", this)
 end
 
-function gradient(this:: Loss, residual:: Vector{Float64})
+function lossGradient(this:: Loss, residual:: Vector{Float64})
   out = zeros(residual)
   gradient!(this, residual, out)
   out
 end
 
-function gradient!(this:: Loss, residual:: Vector{Float64}, out:: Vector{Float64})
+function lossGradient!(this:: Loss, residual:: Vector{Float64}, out:: Vector{Float64})
   raiseAbstract("gradient!", this)
 end
 
@@ -78,8 +78,8 @@ function loss(this:: L2Loss, residual:: Vector{Float64})
   .5*norm(residual, 2)^2
 end
 
-function gradient!(this:: Loss, residual:: Vector{Float64}, out:: Vector{Float64})
-  out[:] = residual
+function lossGradient!(this:: Loss, residual:: Vector{Float64}, out:: Vector{Float64})
+  copy!(out, residual)
 end
 
 
@@ -127,11 +127,12 @@ immutable NLoptDirectionFinder <: AlignedDirectionFinder
 end
 
 function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, initialDirection:: Vector{Float64})
-  opt = Opt(:LD_MMA, dimension(space))
+  opt = Opt(:LD_SLSQP, dimension(space))
   # Could make these parameters.
+  println("Starting from $(initialDirection)")
   ftol_abs!(opt, 1e-6)
   xtol_rel!(opt, 0.0)
-  maxeval!(opt, 200)
+  maxeval!(opt, 400)
   lower_bounds!(opt, Float64[bounds(space, i)[1] for i in 1:dimension(space)])
   upper_bounds!(opt, Float64[bounds(space, i)[2] for i in 1:dimension(space)])
   
@@ -144,7 +145,13 @@ function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirection
     const t:: T = makeTransform(space, point)
     inprod = analyze(t, direction)
     #FIXME: May need to multiply by -1 or something here?
-    parameterGradient!(t, direction, gradientOutput)
+    println("Point: $(point)")
+    if length(gradientOutput) > 0
+      fill!(gradientOutput, 0.0)
+      parameterGradient!(t, direction, gradientOutput)
+      println("Gradient: $(gradientOutput) (norm: $(norm(gradientOutput)))")
+    end
+    println("Value: $(inprod)")
     return inprod:: Float64
   end
   

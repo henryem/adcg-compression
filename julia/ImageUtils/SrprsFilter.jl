@@ -93,10 +93,15 @@ end
 # arbitrary and confusing from an interface-design perspective.  Should
 # consider options for refactoring.
 function parameterGradient!(this:: SrprsFilter, im:: VectorizedImage, out:: AbstractVector{Float64})
-  const gradientFunc = SinglePointSrprsGradient(this, im)
-  const w = imageWidth(image(this))
-  const numGridPointsPerDim = w * NUM_GRID_POINTS_PER_DIM
-  vectorGridCubature!(gradientFunc, 0.0, float(w), 0.0, float(w), numGridPointsPerDim, out)
+  # const gradientFunc = SinglePointSrprsGradient(this, im)
+  # const w = imageWidth(image(this))
+  # const numGridPointsPerDim = w * NUM_GRID_POINTS_PER_DIM
+  # vectorGridCubature!(gradientFunc, 0.0, float(w), 0.0, float(w), numGridPointsPerDim, out)
+  
+  # Using a numerical gradient for now.  Note that we should _definitely_
+  # use a streaming analyze() for this, if we're going to stick with numerical
+  # gradients.
+  numericalGradient!(p -> analyze(makeTransform(parameterSpace(this), p), im), parameters(this), 1e-11, out)
 end
 
 
@@ -175,6 +180,8 @@ function continuousToPixel(continuousImageCoordinate:: Float64)
   end
 end
 
+using Debug
+
 function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Float64, output:: Vector{Float64})
   const d = this.filter.parameterSpace.d
   const p = parameters(this.filter)
@@ -183,12 +190,7 @@ function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Flo
   const pixelX:: Int64 = continuousToPixel(x)
   const pixelY:: Int64 = continuousToPixel(y)
   const flatPixelIdx = pixelX+w*(pixelY-1)
-  #FIXME: Not sure why this happens.
-  # const imageValue = if pixelX < 1 || pixelX > w || pixelY < 1 || pixelY > w
-  #   0.0
-  # else
   const imageValue = this.image[flatPixelIdx]
-  # end
   
   const xR = xRightShift(this.filter)
   const yD = yDownShift(this.filter)
@@ -201,13 +203,15 @@ function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Flo
   const sqrtSInv = 1.0 / sqrtS
   const totalScale = srprsScale(sqrtS, s)
 
+  #FIXME: It seems that the gradient is incorrectly large when we start
+  # at exactly the optimum.  Could be due to the gridding strategy.
   const transformedX = srprsX(x, y, xR, yD, sinT, cosT, sqrtS, s)
   const transformedY = srprsY(x, y, xR, yD, sinT, cosT, sqrtS, s)
   const waveletValue = totalScale*apply(d, transformedX, transformedY)
   const waveletGradX = totalScale*gradientX(d, transformedX, transformedY)
   const waveletGradY = totalScale*gradientY(d, transformedX, transformedY)
   
-  # Note: Some of this could be describe a bit more concisely using matrices,
+  # Note: Some of this could be described a bit more concisely using matrices,
   # but for a 2-dimensional problem, linear algebra is much less efficient
   # than manual multiplication, and we do care about efficiency in this code.
   # d/dxRightShift = <w'_t(x,y), S_t R_t (-1, 0)>

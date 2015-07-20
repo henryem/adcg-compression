@@ -25,7 +25,7 @@ function parseArgs()
   return parse_args(s)
 end
 
-function makeOutputDir!(dirname:: String)
+function makeOutputDir!(dirname:: Union(String,Nothing))
   if dirname != nothing try mkdir(dirname) end end
   if dirname != nothing "$(dirname)" else "." end
 end

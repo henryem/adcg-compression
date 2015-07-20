@@ -25,7 +25,7 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
   currentImageEncoded = TransformedImage(this.im, atoms)
   currentImageDecoded = zeros(Float64, d)
   residual = zeros(Float64, d)
-  lossGradient = zeros(Float64, d)
+  currentLossGradient = zeros(Float64, d)
   iterationCount = 0
   while true
     # Find the atom that (approximately) best explains the current residual.
@@ -44,20 +44,28 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
     currentImageEncoded = TransformedImage(this.im, atoms)
     decodeInto!(currentImageEncoded, currentImageDecoded)
     imwrite(toImage(this.im, currentImageDecoded), "inprogress_$(iterationCount).jpg")
+    #FIXME: This will allocate memory.
     residual[:] = image - currentImageDecoded
     imwrite(toImage(this.im, abs(residual)), "inprogress_residual_$(iterationCount).jpg")
     residualNorm = norm(residual, 2)
     iterationCount += 1
     println("Residual norm before iteration $(iterationCount): $(residualNorm)")
-    if iterationCount > 100 || residualNorm < 1e-5
-      println("Finished encoding.")
+    if iterationCount > 3
+      println("Finished encoding: Ran to max number of iterations.")
+      break
+    elseif residualNorm < 1e-5
+      println("Finished encoding: Residual is small.")
       break
     end
-    gradient!(this.loss, residual, lossGradient)
+    lossGradient!(this.loss, residual, currentLossGradient)
     #FIXME: Check if the direction is actually positive!  If the gradient is
     # ~0 then we are done.  Also, should compute the Frank-Wolfe lower bound
     # here.
-    const nextAtomParameters = mostAlignedDirection(this.bestAtomFinder, lossGradient, space)
+    const nextAtomParameters = mostAlignedDirection(this.bestAtomFinder, currentLossGradient, space)
+    if analyze(makeTransform(space, nextAtomParameters), residual) <= 0
+      println("Finished encoding: Cannot find an atom to improve the residual.")
+      break
+    end
     push!(atoms, TransformAtom(makeTransform(space, nextAtomParameters), 0.0))
     
     # Now we do heuristic descent over the weights and parameters for awhile.
