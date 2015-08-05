@@ -50,18 +50,25 @@ angleRadians(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[3]
 parabolicScale(this:: SrprsFilter) = this.parameters[4]
 parabolicScale(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[4]
 
-const NUM_GRID_POINTS_PER_DIM = 10
+#FIXME: Perhaps should not be a constant.  Probably the cubature method should
+# be a function of the Wavelet...
+const NUM_GRID_POINTS_PER_DIM = 5
 
-function pixelatedFilter(p:: Int64, d:: Wavelet, parameters:: Vector{Float64})
-  template = zeros(p, p)
+function pixelatedFilter!(p:: Int64, d:: Wavelet, parameters:: Vector{Float64}, out:: Vector{Float64})
+  assert(length(out) == p^2)
+  template = reshape(out, p, p)
   const xR = xRightShift(parameters, SrprsFilter)
   const yD = yDownShift(parameters, SrprsFilter)
   const aR = angleRadians(parameters, SrprsFilter)
   const s = parabolicScale(parameters, SrprsFilter)
   griddedPixelGridCubature!(toTwoDFunction(d), xR, yD, aR, sqrt(s), s, NUM_GRID_POINTS_PER_DIM, template)  
-  f = vec(template)
-  f /= norm(f, 2)
-  f
+  scale!(out, 1.0 / norm(out, 2))
+end
+
+function pixelatedFilter(p:: Int64, d:: Wavelet, parameters:: Vector{Float64})
+  template = zeros(p^2)
+  pixelatedFilter!(p, d, parameters, template)
+  template
 end
 
 function parameters(this:: SrprsFilter)
@@ -85,6 +92,22 @@ function addSynthesized!(this:: SrprsFilter, weight:: Float64, out:: AbstractVec
   Base.LinAlg.axpy!(weight, get(this.filter), out)
 end
 
+# Computes analyze(filter, image) for several filters more quickly than
+# constructing each filter, by avoiding overhead normally associated with
+# constructing a filter.
+immutable FastAnalyzer
+  parameterSpace #:: SrprsSpace, but Julia doesn't allow circular references...
+  image:: VectorizedImage
+  filterStorage:: Vector{Float64}
+end
+
+function analyzeWithParameters(this:: FastAnalyzer, p:: Vector{Float64})
+  assert(length(p) == NUM_SRPRS_PARAMETERS)
+  const space:: SrprsSpace = this.parameterSpace
+  pixelatedFilter!(imageWidth(space.image), space.d, p, this.filterStorage)
+  dot(this.image, this.filterStorage)
+end
+
 # The gradient of the scalar function p -> <synthesize(SrprsFilter(p)), im>,
 # evaluated at parameters(this).  A |parameters(this)|-vector.
 #NOTE: This is currently optimized for being called once.  Analyze(), which is
@@ -98,10 +121,11 @@ function parameterGradient!(this:: SrprsFilter, im:: VectorizedImage, out:: Abst
   # const numGridPointsPerDim = w * NUM_GRID_POINTS_PER_DIM
   # vectorGridCubature!(gradientFunc, 0.0, float(w), 0.0, float(w), numGridPointsPerDim, out)
   
-  # Using a numerical gradient for now.  Note that we should _definitely_
-  # use a streaming analyze() for this, if we're going to stick with numerical
-  # gradients.
-  numericalGradient!(p -> analyze(makeTransform(parameterSpace(this), p), im), parameters(this), 1e-11, out)
+  #NOTE: Using a numerical gradient for now.  The above code would compute
+  # an exact gradient (though both use cubature to compute the filter values,
+  # so neither is really exact), but it is currently buggy.
+  fastAnalyzer = FastAnalyzer(parameterSpace(this), im, zeros(pixelCount(this.parameterSpace.image)))
+  numericalGradient!(p -> analyzeWithParameters(fastAnalyzer, p), parameters(this), 1e-11, out)
 end
 
 
@@ -180,8 +204,6 @@ function continuousToPixel(continuousImageCoordinate:: Float64)
   end
 end
 
-using Debug
-
 function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Float64, output:: Vector{Float64})
   const d = this.filter.parameterSpace.d
   const p = parameters(this.filter)
@@ -203,8 +225,6 @@ function Utils.addApplied!(this:: SinglePointSrprsGradient, x:: Float64, y:: Flo
   const sqrtSInv = 1.0 / sqrtS
   const totalScale = srprsScale(sqrtS, s)
 
-  #FIXME: It seems that the gradient is incorrectly large when we start
-  # at exactly the optimum.  Could be due to the gridding strategy.
   const transformedX = srprsX(x, y, xR, yD, sinT, cosT, sqrtS, s)
   const transformedY = srprsY(x, y, xR, yD, sinT, cosT, sqrtS, s)
   const waveletValue = totalScale*apply(d, transformedX, transformedY)

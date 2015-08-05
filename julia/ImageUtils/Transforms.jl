@@ -1,4 +1,5 @@
 export Transform, TransformAtom, analyze, synthesize, addSynthesized!
+export FixedFilter
 export makeX, makeRegularizedX, makeRegularizedXTX
 export ParameterSpace, dimension, bounds, makeTransform, grid, uniformSample
 export ParameterizedTransform, parameters, parameterGradient!
@@ -44,6 +45,26 @@ end
 function addSynthesized!(this:: TransformAtom, out:: AbstractVector{Float64})
   addSynthesized!(this.transform, this.weight, out)
 end
+
+
+# A trivial filter that is parameterized by an image.
+immutable FixedFilter <: Transform
+  filter:: VectorizedImage
+  imageParams:: ImageParameters
+end
+
+function image(this:: FixedFilter)
+  this.imageParams
+end
+
+function analyze(this:: FixedFilter, image:: VectorizedImage)
+  dot(this.filter, image)
+end
+
+function addSynthesized!(this:: FixedFilter, weight:: Float64, out:: AbstractVector{Float64})
+  Base.LinAlg.axpy!(weight, this.filter, out)
+end
+
 
 # Forms the linear operator of application of @transforms.
 function makeX{T <: Transform}(im:: ImageParameters, transforms:: Vector{T})

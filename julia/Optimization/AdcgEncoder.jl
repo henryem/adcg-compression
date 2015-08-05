@@ -86,7 +86,7 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
       # next two steps.  On the other hand, these steps can be kinda expensive,
       # so maybe it doesn't matter.
       #FIXME: Assumes squared error loss.
-      atoms = bestWeights(this.bestWeightsFinder, atoms, tau, image, this.im)
+      @time atoms = bestWeights(this.bestWeightsFinder, atoms, tau, image, this.im)
     
       # Now remove any atoms with 0 weight.
       atoms = filter(a -> a.weight > 0.0, atoms)

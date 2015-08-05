@@ -65,6 +65,7 @@ function run()
   for i in 1:n
     imwrite(data[i], "$(outDir)/$(i)_original.jpg")
   end
+  
   const vectorizedImages = toVectorizedImages(data)
   
   if args["encoder"] != nothing && n > 0

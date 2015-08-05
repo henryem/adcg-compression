@@ -1,0 +1,4 @@
+#!/bin/bash
+testName=$1
+shift
+julia $TRACK_ALLOCATION -e "include(\"./modules.jl\");include(\"$testName\")" $@
