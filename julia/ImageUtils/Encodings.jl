@@ -1,4 +1,4 @@
-export EncodedImage, imageParameters, encoded, decodeAll, decoded, decodeInto!, decodedToImage
+export EncodedImage, imageParameters, encoded, decodeAll, decoded, decodeInto!, decodedToImage, writePicture!
 export TransformedImage
 
 using Utils
@@ -44,6 +44,10 @@ function decodedToImage(this:: EncodedImage)
   toImage(imageParameters(this), decoded(this))
 end
 
+function writePicture!(this:: EncodedImage, path:: String)
+  imwrite(decodedToImage(this), "$(path).jpg")
+end
+
 
 immutable TransformedImage <: EncodedImage
   im:: ImageParameters
@@ -66,4 +70,10 @@ function decodeInto!(this:: TransformedImage, out:: AbstractVector{Float64})
   for a in this.transformAtoms
     addSynthesized!(a, out)
   end
+end
+
+function matchDistance(this:: TransformedImage, other:: TransformedImage)
+  const distanceMatrix = [innerProduct(a, b) for a in this.transformAtoms, b in other.transformAtoms]
+  const matching = match(GreedyMatcher(), distanceMatrix)
+  
 end

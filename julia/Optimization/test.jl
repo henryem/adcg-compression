@@ -1,5 +1,5 @@
 module OptimizationTests
 
-include("./FiniteDimQpSolverTests.jl")
+include("./FiniteDimConvexSolverTests.jl")
 
 end

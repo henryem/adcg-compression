@@ -1,7 +1,7 @@
-export Transform, TransformAtom, analyze, synthesize, addSynthesized!
+export Transform, TransformAtom, image, analyze, innerProduct, synthesize, synthesizeUnit, addSynthesized!, writePicture!
 export FixedFilter
 export makeX, makeRegularizedX, makeRegularizedXTX
-export ParameterSpace, dimension, bounds, makeTransform, grid, uniformSample
+export ParameterSpace, image, dimension, bounds, makeTransform, grid, uniformSample
 export ParameterizedTransform, parameters, parameterGradient!
 
 abstract Transform
@@ -26,6 +26,10 @@ function analyze(this:: Transform, image:: VectorizedImage)
   raiseAbstract("analyze", this)
 end
 
+function innerProduct(this:: TransformAtom, other:: TransformAtom)
+  analyze(this, synthesize(other))
+end
+
 # The inverse of analyze().  For example, weight*T_theta.  The result is
 # added in place to @out.
 function addSynthesized!(this:: Transform, weight:: Float64, out:: AbstractVector{Float64})
@@ -42,8 +46,18 @@ function synthesize(this:: TransformAtom)
   synthesize(this.transform, this.weight)
 end
 
+# Sometimes can be implemented more efficiently than synthesize(this, 1.0).
+function synthesizeUnit(this:: Transform)
+  synthesize(this, 1.0)
+end
+
 function addSynthesized!(this:: TransformAtom, out:: AbstractVector{Float64})
   addSynthesized!(this.transform, this.weight, out)
+end
+
+# Convenience method for writing a sum of atoms to an image file.
+function writePicture!(atoms:: Vector{TransformAtom}, im:: ImageParameters, path:: String)
+  writePicture!(TransformedImage(im, atoms), path)
 end
 
 
@@ -63,6 +77,10 @@ end
 
 function addSynthesized!(this:: FixedFilter, weight:: Float64, out:: AbstractVector{Float64})
   Base.LinAlg.axpy!(weight, this.filter, out)
+end
+
+function synthesizeUnit(this:: FixedFilter)
+  this.filter
 end
 
 
@@ -122,7 +140,8 @@ end
 # \Reals^{p \times d}.
 # Multiplying this by an image results in a vector in \Theta again.  This is
 # the direction of greatest increase of analyze(image) in \Theta at some point 
-# in \Theta.
+# in \Theta.  That is the gradient produced here:
+#   \nabla_theta analyze(this(theta), image)
 # The gradient is filled into @out.
 function parameterGradient!(this:: ParameterizedTransform, image:: VectorizedImage, out:: AbstractVector{Float64})
   raiseAbstract("parameterGradient!", this)
@@ -147,6 +166,11 @@ end
 # provide their own implementations of those methods.
 abstract ParameterSpace{T <: ParameterizedTransform}
 
+# The ImageParameters for transforms in this space.
+function imageParameters(this:: ParameterSpace)
+  raiseAbstract("imageParameters", this)
+end
+
 # The number of parameters.  It is always true that
 #   length(parameters(t)) == dimension(parameterSpace(t))
 # for t:: T.
@@ -159,7 +183,10 @@ function bounds(this:: ParameterSpace, dim:: Int64)
   raiseAbstract("bounds", this)
 end
 
-function makeTransform{T <: ParameterizedTransform}(this:: ParameterSpace{T}, parameters:: Vector{Float64})
+#FIXME: Does making the type AbstractVector here instead of Vector cause a 
+# performance hit?  Obviously it _should_ not, but it might.  The only other
+# type we need to support is SubArray, so we could write two of these.
+function makeTransform{T <: ParameterizedTransform}(this:: ParameterSpace{T}, parameters:: AbstractVector{Float64})
   #NOTE: T should provide a constructor like this.
   T(this, parameters)
 end
@@ -169,8 +196,14 @@ end
 # dimension gets numGridPoints^(1/dimension(this)) different values.)
 function grid{T <: ParameterizedTransform}(this::ParameterSpace{T}, numGridPoints:: Int64)
   const numGridPointsPerParam = floor(Int64, numGridPoints^(1.0/dimension(this)))
-  const numGridPointsRounded = numGridPointsPerParam^dimension(this)
-  const ranges = [linrange(bounds(this, i)[1], bounds(this, i)[2], numGridPointsPerParam) for i in 1:dimension(this)]
+  grid(this, [numGridPointsPerParam for i in 1:dimension(this)])
+end
+
+# A Vector{T} containing a gridding of the parameter space.  Dimension i
+# gets @numGridPointsPerParam[i] grid points.
+function grid{T <: ParameterizedTransform}(this::ParameterSpace{T}, numGridPointsPerParam:: Vector{Int64})
+  assert(length(numGridPointsPerParam) == dimension(this))
+  const ranges = [linrange(bounds(this, i)[1], bounds(this, i)[2], numGridPointsPerParam[i]) for i in 1:dimension(this)]
   theGrid:: Vector{ParameterizedTransform} = ParameterizedTransform[]
   # I am so sorry for the following line of code.  All it does is fill in
   # theGrid from the Cartesian product of elements of @ranges, each element
@@ -178,12 +211,12 @@ function grid{T <: ParameterizedTransform}(this::ParameterSpace{T}, numGridPoint
   # rather inefficiently (in the constant-factor sense).
   cartesianmap(
     (p...) -> push!(theGrid, makeTransform(this, Float64[ranges[i][p[i]] for i in 1:dimension(this)])),
-    tuple([numGridPointsPerParam for i in 1:dimension(this)]...))
+    tuple([numGridPointsPerParam[i] for i in 1:dimension(this)]...))
   theGrid
 end
 
 # A uniform sample from the parameter space.
 function uniformSample{T <: ParameterizedTransform}(this:: ParameterSpace{T})
-  const params = [(bounds(this, i)[2] - bounds(this, i)[1])*rand() + bounds(this, i)[1] for i in 1:dimension(this)]
+  const params = Float64[(bounds(this, i)[2] - bounds(this, i)[1])*rand() + bounds(this, i)[1] for i in 1:dimension(this)]
   makeTransform(this, params)
 end

@@ -28,11 +28,12 @@ end
 # functional to the image.
 immutable SrprsFilter <: ParameterizedTransform
   parameterSpace #:: SrprsSpace, but Julia doesn't allow circular references...
-  parameters:: Vector{Float64}
+  #FIXME: Not sure if AbstractVector here causes a performance hit.
+  parameters:: AbstractVector{Float64}
   filter:: Container{VectorizedImage}
   
-  function SrprsFilter(parameterSpace, parameters:: Vector{Float64})
-    const lazyFilter = Lazy(VectorizedImage, () -> pixelatedFilter(parameterSpace.image.pixelCountPerSide, parameterSpace.d, parameters))
+  function SrprsFilter(parameterSpace, parameters:: AbstractVector{Float64})
+    const lazyFilter = Lazy(VectorizedImage, () -> pixelatedFilter(imageParameters(parameterSpace).pixelCountPerSide, parameterSpace.d, parameters))
     new(parameterSpace, parameters, lazyFilter)
   end
 end
@@ -42,19 +43,19 @@ function SrprsFilter(d:: Wavelet, image:: ImageParameters, parameters:: Vector{F
 end
 
 xRightShift(this:: SrprsFilter) = this.parameters[1]
-xRightShift(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[1]
+xRightShift(p:: AbstractVector{Float64}, :: Type{SrprsFilter}) = p[1]
 yDownShift(this:: SrprsFilter) = this.parameters[2]
-yDownShift(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[2]
+yDownShift(p:: AbstractVector{Float64}, :: Type{SrprsFilter}) = p[2]
 angleRadians(this:: SrprsFilter) = this.parameters[3]
-angleRadians(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[3]
+angleRadians(p:: AbstractVector{Float64}, :: Type{SrprsFilter}) = p[3]
 parabolicScale(this:: SrprsFilter) = this.parameters[4]
-parabolicScale(p:: Vector{Float64}, :: Type{SrprsFilter}) = p[4]
+parabolicScale(p:: AbstractVector{Float64}, :: Type{SrprsFilter}) = p[4]
 
 #FIXME: Perhaps should not be a constant.  Probably the cubature method should
 # be a function of the Wavelet...
 const NUM_GRID_POINTS_PER_DIM = 5
 
-function pixelatedFilter!(p:: Int64, d:: Wavelet, parameters:: Vector{Float64}, out:: Vector{Float64})
+function pixelatedFilter!(p:: Int64, d:: Wavelet, parameters:: AbstractVector{Float64}, out:: Vector{Float64})
   assert(length(out) == p^2)
   template = reshape(out, p, p)
   const xR = xRightShift(parameters, SrprsFilter)
@@ -65,7 +66,7 @@ function pixelatedFilter!(p:: Int64, d:: Wavelet, parameters:: Vector{Float64}, 
   scale!(out, 1.0 / norm(out, 2))
 end
 
-function pixelatedFilter(p:: Int64, d:: Wavelet, parameters:: Vector{Float64})
+function pixelatedFilter(p:: Int64, d:: Wavelet, parameters:: AbstractVector{Float64})
   template = zeros(p^2)
   pixelatedFilter!(p, d, parameters, template)
   template
@@ -80,7 +81,7 @@ function parameterSpace(this:: SrprsFilter)
 end
 
 function image(this:: SrprsFilter)
-  this.parameterSpace.image
+  imageParameters(this.parameterSpace)
 end
 
 function analyze(this:: SrprsFilter, image:: VectorizedImage)
@@ -92,6 +93,10 @@ function addSynthesized!(this:: SrprsFilter, weight:: Float64, out:: AbstractVec
   Base.LinAlg.axpy!(weight, get(this.filter), out)
 end
 
+function synthesizeUnit(this:: SrprsFilter)
+  get(this.filter)
+end
+
 # Computes analyze(filter, image) for several filters more quickly than
 # constructing each filter, by avoiding overhead normally associated with
 # constructing a filter.
@@ -101,10 +106,10 @@ immutable FastAnalyzer
   filterStorage:: Vector{Float64}
 end
 
-function analyzeWithParameters(this:: FastAnalyzer, p:: Vector{Float64})
+function analyzeWithParameters(this:: FastAnalyzer, p:: AbstractVector{Float64})
   assert(length(p) == NUM_SRPRS_PARAMETERS)
   const space:: SrprsSpace = this.parameterSpace
-  pixelatedFilter!(imageWidth(space.image), space.d, p, this.filterStorage)
+  pixelatedFilter!(imageWidth(imageParameters(space)), space.d, p, this.filterStorage)
   dot(this.image, this.filterStorage)
 end
 
@@ -124,7 +129,7 @@ function parameterGradient!(this:: SrprsFilter, im:: VectorizedImage, out:: Abst
   #NOTE: Using a numerical gradient for now.  The above code would compute
   # an exact gradient (though both use cubature to compute the filter values,
   # so neither is really exact), but it is currently buggy.
-  fastAnalyzer = FastAnalyzer(parameterSpace(this), im, zeros(pixelCount(this.parameterSpace.image)))
+  fastAnalyzer = FastAnalyzer(parameterSpace(this), im, zeros(pixelCount(image(this))))
   numericalGradient!(p -> analyzeWithParameters(fastAnalyzer, p), parameters(this), 1e-11, out)
 end
 
@@ -154,6 +159,10 @@ function SrprsSpace(image:: ImageParameters)
   SrprsSpace(defaultWavelet(image), image)
 end
 
+function imageParameters(this:: SrprsSpace)
+  this.image
+end
+
 # Parameters are [xRightShift, yDownShift, angleRadians, parabolicScale].
 const NUM_SRPRS_PARAMETERS = 4
 
@@ -165,13 +174,13 @@ const MIN_SRPRS_SCALE = 1e-1
 
 function bounds(this:: SrprsSpace, dim:: Int64)
   if dim == 1
-    (0, imageWidth(this.image))
+    (0, imageWidth(imageParameters(this)))
   elseif dim == 2
-    (0, imageWidth(this.image))
+    (0, imageWidth(imageParameters(this)))
   elseif dim == 3
     (0, pi)
   elseif dim == 4
-    const w = imageWidth(this.image)
+    const w = imageWidth(imageParameters(this))
     (min(MIN_SRPRS_SCALE, w), 2*w)
   else
     error("Dim $(dim) out of bounds for $(this).")

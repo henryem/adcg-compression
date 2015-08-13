@@ -2,7 +2,7 @@ export numericalGradient!
 
 # Compute approximate gradients numerically.  Useful for checking explicit
 # formulae.
-function numericalGradient!(f:: Function, point:: Vector{Float64}, stepSize:: Float64, out:: Vector{Float64})
+function numericalGradient!(f:: Function, point:: AbstractVector{Float64}, stepSize:: Float64, out:: AbstractVector{Float64})
   const d = length(point)
   @inbounds for dim = 1:d
     const original = point[dim]

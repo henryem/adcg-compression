@@ -87,6 +87,12 @@ macro assertEq(expr1, expr2)
   end
 end
 
+macro assertEq(expr1, expr2, comparatorExpr)
+  quote
+    assertEq($(esc(expr1)), $(esc(expr2)), $(esc(comparatorExpr)), $(string(expr1)), $(string(expr2)))
+  end
+end
+
 function assertThrows(func, funcName)
   threwException = true
   try

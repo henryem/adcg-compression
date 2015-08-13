@@ -1,4 +1,4 @@
-export AlignedDirectionFinder, mostAlignedDirection
+export AlignedDirectionFinder, leastAlignedDirection
 export WarmstartFinder
 export GridFinder
 export NLoptDirectionFinder
@@ -8,14 +8,14 @@ using NLopt
 abstract AlignedDirectionFinder
 
 # Finds a parameter vector p in @space so that <synthesize(T(p),1.0), direction>
-# is (approximately) maximized.
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: AlignedDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T})
-  mostAlignedDirection(this, direction, space, zeros(dimension(space)))
+# is (approximately) minimized.  (Typically will be negative.)
+function leastAlignedDirection{T <: ParameterizedTransform}(this:: AlignedDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T})
+  leastAlignedDirection(this, direction, space, zeros(dimension(space)))
 end
 
-# As mostAlignedDirection, but with a starting location.
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: AlignedDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, start:: Vector{Float64})
-  raiseAbstract("mostAlignedDirection", this)
+# As leastAlignedDirection, but with a starting location.
+function leastAlignedDirection{T <: ParameterizedTransform}(this:: AlignedDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, start:: Vector{Float64})
+  raiseAbstract("leastAlignedDirection", this)
 end
 
 
@@ -29,42 +29,51 @@ immutable WarmstartFinder <: AlignedDirectionFinder
   next:: AlignedDirectionFinder
 end
 
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: WarmstartFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, ignored:: Vector{Float64})
-  const start = mostAlignedDirection(this.first, direction, space)
-  mostAlignedDirection(this.next, direction, space, start)
+function leastAlignedDirection{T <: ParameterizedTransform}(this:: WarmstartFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, ignored:: Vector{Float64})
+  println("Warm-starting...")
+  @time const start = leastAlignedDirection(this.first, direction, space)
+  println("Optimizing after warm start...")
+  @time const result = leastAlignedDirection(this.next, direction, space, start)
+  result
 end
 
 
-immutable GridFinder <: AlignedDirectionFinder
-  gridSize:: Int64
+type GridFinder <: AlignedDirectionFinder
+  gridDims:: Union(Int64,Vector{Int64})
+  hasCache:: Bool
+  cachedCandidates:: Vector{Transform}
+  cachedSpace:: ParameterSpace
+  
+  function GridFinder(gridDims:: Union(Int64,Vector{Int64}))
+    new(gridDims, false)
+  end
 end
 
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: GridFinder, direction:: VectorizedImage, space:: ParameterSpace{T})
-  candidates = grid(space, this.gridSize)
+function leastAlignedDirection{T <: ParameterizedTransform}(this:: GridFinder, direction:: VectorizedImage, space:: ParameterSpace{T})
+  # A bit of a hack; we optimize for the common case where we reuse the 
+  # GridFinder with the same space and several directions.
+  if !this.hasCache || this.cachedSpace != space
+    this.hasCache = true
+    this.cachedCandidates = grid(space, this.gridDims)
+    this.cachedSpace = space
+  end
   bestCandidateIdx = 0
-  bestCandidateValue = -Inf
-  for (candidateIdx, candidate) in enumerate(candidates)
-    #TODO: May want to implement an analyzeWithStorage() or analyzeStreaming()
-    # so that the filters don't have to be separately allocated and then 
-    # immediately GCed after they are used for one dot product.  Similarly, we
-    # may want to avoid allocating even the parameter vector for each
-    # candidate; we'd be okay if grid() returned an iterator (with the further
-    # constraint that next() destroys the current iterate) instead of a
-    # materialized list of candidates.
+  bestCandidateValue = Inf
+  for (candidateIdx, candidate) in enumerate(this.cachedCandidates)
     value = analyze(candidate, direction)
-    if value > bestCandidateValue
+    if value < bestCandidateValue
       bestCandidateIdx = candidateIdx
       bestCandidateValue = value
     end
   end
-  parameters(candidates[bestCandidateIdx])
+  parameters(this.cachedCandidates[bestCandidateIdx])
 end
 
 
 immutable NLoptDirectionFinder <: AlignedDirectionFinder
 end
 
-function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, initialDirection:: Vector{Float64})
+function leastAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirectionFinder, direction:: VectorizedImage, space:: ParameterSpace{T}, initialDirection:: Vector{Float64})
   opt = Opt(:LD_SLSQP, dimension(space))
   # Could make these parameters.
   println("Starting from $(initialDirection)")
@@ -94,7 +103,7 @@ function mostAlignedDirection{T <: ParameterizedTransform}(this:: NLoptDirection
     return inprod:: Float64
   end
   
-  max_objective!(opt, inprodAndGradient!)
-  (maxValue, bestDirection, terminationStatus) = optimize(opt, initialDirection)
+  min_objective!(opt, inprodAndGradient!)
+  (minValue, bestDirection, terminationStatus) = optimize(opt, initialDirection)
   return bestDirection
 end

@@ -13,7 +13,7 @@ function toStandardFormat(im:: Image, format:: ImageParameters)
     const diff = format.pixelCountPerSide - xSize
     const leftPad = ceil(Int64, diff / 2)
     const rightPad = floor(Int64, diff / 2)
-    standardizedImage = shareproperties(padarray(data(standardizedImage), (leftPad, 0), (rightPad, 0), "value", 0.0), standardizedImage)
+    standardizedImage = grayim(padarray(data(standardizedImage), (leftPad, 0), (rightPad, 0), "value", 0.0))
   end
   
   if ySize > format.pixelCountPerSide
@@ -22,13 +22,13 @@ function toStandardFormat(im:: Image, format:: ImageParameters)
     const diff = format.pixelCountPerSide - ySize
     const topPad = int(ceil(diff / 2))
     const downPad = int(floor(diff / 2))
-    standardizedImage = shareproperties(padarray(data(standardizedImage), (0, topPad), (0, downPad), "value", 0.0), standardizedImage)
+    standardizedImage = grayim(padarray(data(standardizedImage), (0, topPad), (0, downPad), "value", 0.0))
   end
   
   standardizedImage
 end
 
-#FIXME: Load Images from somewhere.
+
 immutable TestImageLoader <: DataGenerator{Image}
   filenames:: Vector{String}
   imageFormat:: ImageParameters

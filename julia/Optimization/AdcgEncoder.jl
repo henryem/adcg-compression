@@ -1,6 +1,5 @@
 export AdcgEncoder, encode
 
-#FIXME
 using Images
 
 immutable AdcgEncoder{T <: ParameterizedTransform} <: Encoder
@@ -8,25 +7,30 @@ immutable AdcgEncoder{T <: ParameterizedTransform} <: Encoder
   motherTransformSpace:: ParameterSpace{T}
   loss:: Loss
   bestAtomFinder:: AlignedDirectionFinder
-  bestWeightsFinder:: FiniteDimQpSolver
+  bestWeightsFinder:: FiniteDimConvexSolver
   localAtomImprover:: LocalImprovementFinder
 end
 
 function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
-  const d = pixelCount(this.im)
-  const tau = norm(image, 2) #FIXME: This seems roughly right, since atoms are 
-  # supposed to have norm roughly 1.  If we measured everything in the 1-norm,
-  # and we believed overshooting the total pixel weight wouldn't ever be a
-  # good idiea, we could use exactly norm(image, 1) to set tau.  Since we
-  # measure in the 2-norm, I'm not sure we can say anything.  In any case
-  # this is probably okay, except that we might want to divide by \sqrt{d}...
-  const space:: ParameterSpace{T} = this.motherTransformSpace
+  const space = this.motherTransformSpace
+  const d = pixelCount(imageParameters(space))
+  # Here we are using the conservative bound:
+  # 
+  # \sum_i w_i = \sum_i w_i ||a_i||_2
+  #   <= \sum_i w_i \sqrt{d} ||a_i||_1
+  #   = \sqrt{d} ||image||_1
+  # 
+  # Since we won't get exact reconstruction, even this bound is not always
+  # accurate; we might want to fudge it upward a bit.
+  const tau = sqrt(d)*norm(image, 1)
   atoms:: Vector{TransformAtom} = []
-  currentImageEncoded = TransformedImage(this.im, atoms)
-  currentImageDecoded = zeros(Float64, d)
+  currentEncodedImage = zeros(Float64, d)
   residual = zeros(Float64, d)
   currentLossGradient = zeros(Float64, d)
   iterationCount = 0
+  #FIXME
+  const imageName = "image$(rand(1:2^20))"
+  imwrite(toImage(this.im, image), "$(imageName)-truth.jpg")
   while true
     # Find the atom that (approximately) best explains the current residual.
     # This means searching over the parameter space, a non-convex but low-
@@ -40,33 +44,33 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
     # Note that this step changes if we use a different loss function; in 
     # general we use the gradient of the loss (with respect to the residual),
     # which coincides with the residual for the squared loss.
-    #TODO: Not sure why this next line is needed.
-    currentImageEncoded = TransformedImage(this.im, atoms)
-    decodeInto!(currentImageEncoded, currentImageDecoded)
-    imwrite(toImage(this.im, currentImageDecoded), "inprogress_$(iterationCount).jpg")
-    #FIXME: This will allocate memory.
-    residual[:] = image - currentImageDecoded
-    imwrite(toImage(this.im, abs(residual)), "inprogress_residual_$(iterationCount).jpg")
-    residualNorm = norm(residual, 2)
+    computeResidualAndLossGradient!(imageParameters(space), image, atoms, this.loss, currentEncodedImage, residual, currentLossGradient)
+    const currentLoss = loss(this.loss, residual)
     iterationCount += 1
-    println("Residual norm before iteration $(iterationCount): $(residualNorm)")
-    if iterationCount > 3
+    println("Atoms before iteration $(iterationCount): $(atoms)")
+    #FIXME: Why doesn't this work on the second iteration?
+    # println("Residual: $(residual)")
+    imwrite(toImage(this.im, max(residual, 0)), "$(imageName)-$(iterationCount)-positive-residual.jpg")
+    imwrite(toImage(this.im, abs(min(residual, 0))), "$(imageName)-$(iterationCount)-negative-residual.jpg")
+    println("Loss before iteration $(iterationCount): $(currentLoss)")
+    #FIXME
+    if iterationCount > 20
       println("Finished encoding: Ran to max number of iterations.")
       break
-    elseif residualNorm < 1e-5
+    elseif currentLoss < 1e-5
       println("Finished encoding: Residual is small.")
       break
     end
-    lossGradient!(this.loss, residual, currentLossGradient)
-    #FIXME: Check if the direction is actually positive!  If the gradient is
-    # ~0 then we are done.  Also, should compute the Frank-Wolfe lower bound
-    # here.
-    const nextAtomParameters = mostAlignedDirection(this.bestAtomFinder, currentLossGradient, space)
-    if analyze(makeTransform(space, nextAtomParameters), residual) <= 0
+    #FIXME: Should compute the Frank-Wolfe lower bound here.
+    println("Finding the gradient direction...")
+    @time const nextAtomParameters:: Vector{Float64} = leastAlignedDirection(this.bestAtomFinder, currentLossGradient, space)
+    if analyze(makeTransform(space, nextAtomParameters), currentLossGradient) >= 0
       println("Finished encoding: Cannot find an atom to improve the residual.")
       break
     end
     push!(atoms, TransformAtom(makeTransform(space, nextAtomParameters), 0.0))
+    println("Added atom at $(nextAtomParameters).")
+    writePicture!([TransformAtom(makeTransform(space, nextAtomParameters), 10.0)], imageParameters(space), "$(imageName)-$(iterationCount)-direction")
     
     # Now we do heuristic descent over the weights and parameters for awhile.
     # We alternate between exact block coordinate descent over the weights,
@@ -79,27 +83,26 @@ function encode{T}(this:: AdcgEncoder{T}, image:: VectorizedImage)
     # practice they are often important.
     while true
       # Now optimize over the convex hull of tau*thetas to produce atoms whose
-      # mass sums to (at most) tau.  This is just solving a convex QP (a 
-      # modified Lasso problem).
-      #FIXME: Probably should act in place, but TransformAtom is immutable (and
-      # therefore not really appropriate for use in this solver).  Same for the
-      # next two steps.  On the other hand, these steps can be kinda expensive,
-      # so maybe it doesn't matter.
-      #FIXME: Assumes squared error loss.
-      @time atoms = bestWeights(this.bestWeightsFinder, atoms, tau, image, this.im)
+      # mass sums to (at most) tau.  This means minimizing the loss over a 
+      # simplex; for the l2 loss this is a nonnegative Lasso problem.
+      println("Finding optimal weights...")
+      @time atoms = bestWeights(this.bestWeightsFinder, atoms, tau, image, imageParameters(space), this.loss)
+      writePicture!(atoms, imageParameters(space), "$(imageName)-$(iterationCount)-weights")
+      println("Atoms with optimal weights: $(atoms)")
     
       # Now remove any atoms with 0 weight.
       atoms = filter(a -> a.weight > 0.0, atoms)
     
       # Now do local heuristic search to improve atom locations.
-      #FIXME: Assumes squared error loss.
-      atoms = findLocalImprovements(this.localAtomImprover, atoms, image, space)
+      println("Finding local improvements...")
+      @time atoms = findLocalImprovements(this.localAtomImprover, atoms, tau, image, imageParameters(space), this.loss, space)
+      writePicture!(atoms, imageParameters(space), "$(imageName)-$(iterationCount)-local")
+      println("Atoms with local improvements: $(atoms)")
       
       #FIXME: Need a real stopping condition.
       break
     end
     #FIXME: Need a real stopping condition.
-    println("Added atom at $(nextAtomParameters) with weight $(atoms[end].weight).")
   end
-  TransformedImage(this.im, atoms)
+  TransformedImage(imageParameters(space), atoms)
 end
